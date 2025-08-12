@@ -1,0 +1,39 @@
+@page "/gl-popout/{Id}"
+@using Blazor.GoldenLayout.Models
+@inject Blazor.GoldenLayout.Services.PopoutService Popouts
+@inject NavigationManager Nav
+
+<h4 class="gl-popout-title">@Id</h4>
+<button @onclick="ReturnToMain">Return to Main</button>
+
+<GlLayout Layout="State">
+  <GlComponent Id="@Id">
+    @Root.ResolveComponent(Id)
+  </GlComponent>
+</GlLayout>
+
+@code {
+  [Parameter] public string Id { get; set; } = default!;
+  LayoutState State = LayoutState.Deserialize("{\"Root\":{\"Id\":\"stack-pop\",\"ActiveIndex\":0,\"Tabs\":[{\"ComponentId\":\"__placeholder\"}]}}".Replace("__placeholder", ""));
+
+  protected override async Task OnInitializedAsync()
+  {
+    await Popouts.InitializeAsync();
+    Popouts.ChannelMessage += OnChannel;
+    await Popouts.BroadcastAsync(new { t = "requestState", componentId = Id });
+  }
+
+  private void OnChannel(string type, string json)
+  {
+    if (type != "state") return;
+    using var doc = System.Text.Json.JsonDocument.Parse(json);
+    var comp = doc.RootElement.GetProperty("componentId").GetString();
+    if (comp != Id) return;
+    var layoutId = doc.RootElement.GetProperty("layoutId").GetString();
+    if (!string.IsNullOrEmpty(layoutId)) State.LayoutId = layoutId!;
+    InvokeAsync(StateHasChanged);
+  }
+
+  private Task ReturnToMain()
+    => Popouts.BroadcastAsync(new { t = "returnTab", componentId = Id });
+}

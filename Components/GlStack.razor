@@ -1,0 +1,94 @@
+@using Blazor.GoldenLayout.Models
+@inject Blazor.GoldenLayout.Services.DragService Drag
+@inject Blazor.GoldenLayout.Services.PopoutService Popouts
+@inherits Blazor.GoldenLayout.GlLayoutBase
+
+<div class="gl-stack" @onpointerleave="(()=>Drag.UpdateHover(Model.Id, Blazor.GoldenLayout.Services.DockEdge.Center))" @ref="_root">
+  <div class="gl-tabs">
+    @for (var i = 0; i < Model.Tabs.Count; i++)
+    {
+        var tab = Model.Tabs[i];
+        <button class="gl-tab @(i==Model.ActiveIndex? "active" : null)"
+                @onpointerdown="((e)=>StartDrag(e, tab.ComponentId))"
+                @onclick="(()=>Activate(i))">@((tab.Title??tab.ComponentId))</button>
+        <button class="gl-tab-popout" title="Pop out" @onclick="(()=>PopOut(tab.ComponentId))">⬈</button>
+    }
+  </div>
+  <div class="gl-content">
+    @(IsPoppedOut(Model.Tabs[Model.ActiveIndex].ComponentId)
+        ? (builder => builder.AddMarkupContent(0, "<div class='gl-popped'>Popped out</div>"))
+        : Resolve(Model.Tabs[Model.ActiveIndex]))
+  </div>
+
+  @if (_showTargets)
+  {
+    <div class="gl-dock-targets">
+      <div class="t t-top" @onpointerenter="(()=>Hover(Blazor.GoldenLayout.Services.DockEdge.Top))"></div>
+      <div class="t t-right" @onpointerenter="(()=>Hover(Blazor.GoldenLayout.Services.DockEdge.Right))"></div>
+      <div class="t t-bottom" @onpointerenter="(()=>Hover(Blazor.GoldenLayout.Services.DockEdge.Bottom))"></div>
+      <div class="t t-left" @onpointerenter="(()=>Hover(Blazor.GoldenLayout.Services.DockEdge.Left))"></div>
+      <div class="t t-center" @onpointerenter="(()=>Hover(Blazor.GoldenLayout.Services.DockEdge.Center))"></div>
+    </div>
+  }
+</div>
+
+@code {
+    [Parameter] public Stack Model { get; set; } = default!;
+    [Parameter] public Func<ComponentRef, RenderFragment> Resolve { get; set; } = default!;
+    [Parameter] public EventCallback<Stack> OnChanged { get; set; }
+
+    ElementReference _root; bool _showTargets;
+    private readonly Dictionary<string, string> _popMap = new(); // componentId -> popoutId
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Popouts.InitializeAsync();
+        Popouts.Closed += OnPopoutClosed;
+        Drag.Changed += ()=>InvokeAsync(StateHasChanged);
+    }
+
+    private void Activate(int idx)
+    {
+        Model = Model with { ActiveIndex = idx };
+        var tab = Model.Tabs[idx];
+        Root.Layout.LastDock[tab.ComponentId] = new DockMemory { StackId = Model.Id, Index = idx, Updated = DateTimeOffset.UtcNow };
+        OnChanged.InvokeAsync(Model);
+    }
+
+    private void StartDrag(PointerEventArgs e, string componentId)
+    {
+        Drag.Begin(componentId, Model.Id);
+        _showTargets = true;
+    }
+
+    private void Hover(Blazor.GoldenLayout.Services.DockEdge edge) => Drag.UpdateHover(Model.Id, edge);
+
+    private bool IsPoppedOut(string componentId) => Root.Layout.Popped.ContainsKey(componentId);
+
+    private async Task PopOut(string componentId)
+    {
+        if (_popMap.ContainsKey(componentId)) return;
+        var idx = Model.Tabs.FindIndex(t => t.ComponentId == componentId);
+        Root.Layout.LastDock[componentId] = new DockMemory { StackId = Model.Id, Index = Math.Max(idx, 0), Updated = DateTimeOffset.UtcNow };
+
+        var url = $"/gl-popout/{Uri.EscapeDataString(componentId)}?layout={Popouts.LayoutId}";
+        var id = await Popouts.OpenAsync(url, name: componentId);
+        if (id is not null)
+        {
+            _popMap[componentId] = id;
+            Root.Layout.Popped[componentId] = new PopoutMeta { WindowId = id };
+            await Root.NotifyChanged();
+        }
+    }
+
+    private void OnPopoutClosed(string id)
+    {
+        var entry = _popMap.FirstOrDefault(kv => kv.Value == id);
+        if (!string.IsNullOrEmpty(entry.Key))
+        {
+            _popMap.Remove(entry.Key);
+            Root.Layout.Popped.Remove(entry.Key);
+            _ = Root.NotifyChanged();
+        }
+    }
+}

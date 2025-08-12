@@ -1,0 +1,27 @@
+<div class="gl-splitter" @onpointerdown="StartDrag" draggable="false"></div>
+
+@code {
+    [Parameter] public bool Vertical { get; set; } // true => horizontal bar between columns
+    [Parameter] public EventCallback<double> OnDelta { get; set; }
+    [Parameter] public double Sensitivity { get; set; } = 0.005; // fraction per pixel
+
+    private bool _dragging; private double _last;
+
+    void StartDrag(PointerEventArgs e)
+    {
+        _dragging = true; _last = Vertical ? e.ClientY : e.ClientX;
+    }
+
+    void OnMove(PointerEventArgs e)
+    {
+        if (!_dragging) return;
+        var current = Vertical ? e.ClientY : e.ClientX;
+        var deltaPx = current - _last; _last = current;
+        OnDelta.InvokeAsync(deltaPx * Sensitivity);
+    }
+
+    void OnUp(PointerEventArgs _)
+    {
+        _dragging = false;
+    }
+}

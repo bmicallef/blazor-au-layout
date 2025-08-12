@@ -1,0 +1,56 @@
+@using Blazor.GoldenLayout.Models
+@inject Blazor.GoldenLayout.Services.DragService Drag
+
+<div class="gl-root" @onpointerup="OnPointerUp" @onpointermove="OnMove">
+    @RenderNode(Layout.Root)
+    @if (Drag.Current is not null && Drag.Hover is { } h)
+    {
+        <div class="gl-ghost @(h.edge.ToString().ToLower())"></div>
+    }
+</div>
+
+@code {
+    private RenderFragment RenderNode(Node node) => builder =>
+    {
+        switch (node)
+        {
+            case Row row:
+                RenderLinear(builder, row.Children, vertical: false, row.Id);
+                break;
+            case Column col:
+                RenderLinear(builder, col.Children, vertical: true, col.Id);
+                break;
+            case Stack stack:
+                builder.OpenComponent<GlStack>(0);
+                builder.AddAttribute(1, nameof(GlStack.Model), stack);
+                builder.AddAttribute(2, nameof(GlStack.Resolve), ResolveComponent);
+                builder.AddAttribute(3, nameof(GlStack.OnChanged), EventCallback.Factory.Create<Stack>(this, OnStackChanged));
+                builder.CloseComponent();
+                break;
+        }
+    };
+
+    private void RenderLinear(RenderTreeBuilder b, List<Node> children, bool vertical, string id)
+    {
+        b.OpenElement(0, "div");
+        b.AddAttribute(1, "class", vertical ? "gl-col" : "gl-row");
+        for (int i = 0; i < children.Count; i++)
+        {
+            b.OpenElement(2, "div");
+            b.AddAttribute(3, "class", "gl-cell");
+            b.AddContent(4, RenderNode(children[i]));
+            b.CloseElement();
+
+            if (i < children.Count - 1)
+            {
+                b.OpenComponent<GlSplitter>(5);
+                b.AddAttribute(6, nameof(GlSplitter.Vertical), !vertical);
+                b.AddAttribute(7, nameof(GlSplitter.OnDelta), EventCallback.Factory.Create<double>(this, d => Resize(children, i, d)));
+                b.CloseComponent();
+            }
+        }
+        b.CloseElement();
+    }
+
+    private void OnMove(PointerEventArgs e) { /* optional hover computation */ }
+}
